@@ -7,6 +7,7 @@ interface ArticleInput {
   title: string;
   url: string;
   source: string;
+  published: string;
   summary: string;
   categories: string[];
 }
@@ -17,6 +18,7 @@ export interface DigestItem {
   url: string;
   category: string;
   relevance: number;
+  published: string;
 }
 
 export async function rankAndTranslate(
@@ -25,7 +27,7 @@ export async function rankAndTranslate(
   const articleList = articles
     .map(
       (a, i) =>
-        `[${i + 1}] Titre: ${a.title}\nSource: ${a.source}\nURL: ${a.url}\nCategories: ${a.categories.join(", ")}\nResume: ${a.summary}`
+        `[${i + 1}] Titre: ${a.title}\nSource: ${a.source}\nURL: ${a.url}\nPublie: ${a.published}\nCategories: ${a.categories.join(", ")}\nResume: ${a.summary}`
     )
     .join("\n\n");
 
@@ -50,6 +52,7 @@ Pour chaque article selectionne, donne :
 - Un titre traduit/adapte en francais (court, accrocheur, style media)
 - La source originale
 - L'URL
+- La date de publication originale (champ "published" fourni, au format ISO)
 - La categorie (Politique, Immigration, Transport, Economie, Culture, Vie Pratique, Diplomatie, Education, Sante, Sport, Communaute)
 - Un score de pertinence de 1 a 10
 
@@ -59,6 +62,7 @@ IMPORTANT: Reponds UNIQUEMENT en JSON valide, sans texte avant ou apres. Format 
     "title_fr": "Titre en francais",
     "source": "Nom de la source",
     "url": "https://...",
+    "published": "2026-03-06T10:00:00.000Z",
     "category": "Categorie",
     "relevance": 9
   }

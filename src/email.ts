@@ -17,7 +17,7 @@ export async function sendDigestEmail(items: DigestItem[]): Promise<void> {
   const form = new URLSearchParams();
   form.append("from", env.mailgunFrom);
   form.append("to", env.mailgunTo);
-  form.append("subject", `Veille FAL — ${today}`);
+  form.append("subject", `🇫🇷 Veille FAL — ${today}`);
   form.append("html", html);
   form.append("text", text);
 
@@ -43,21 +43,25 @@ export async function sendDigestEmail(items: DigestItem[]): Promise<void> {
 function buildHtml(items: DigestItem[], date: string, baseUrl: string): string {
   const rows = items
     .map(
-      (item, i) => `
+      (item, i) => {
+        const pubDate = item.published
+          ? new Date(item.published).toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit" })
+          : "";
+        return `
     <tr style="border-bottom: 1px solid #eee;">
       <td style="padding: 12px 8px; vertical-align: top; color: #999; font-size: 14px;">${i + 1}</td>
       <td style="padding: 12px 8px;">
         <a href="${item.url}" style="color: #1a1a1a; text-decoration: none; font-weight: 600; font-size: 15px;">${item.title_fr}</a>
         <br/>
-        <span style="color: #666; font-size: 13px;">${item.source} · ${item.category}</span>
-      </td>
-      <td style="padding: 12px 8px; vertical-align: top;">
+        <span style="color: #666; font-size: 13px;">${item.source} · ${item.category}${pubDate ? ` · ${pubDate}` : ""}</span>
+        <br/>
         <a href="${baseUrl}?url=${encodeURIComponent(item.url)}&title=${encodeURIComponent(item.title_fr)}&source=${encodeURIComponent(item.source)}"
-           style="display: inline-block; padding: 6px 12px; background: #2563eb; color: white; text-decoration: none; border-radius: 4px; font-size: 13px; white-space: nowrap;">
+           style="display: inline-block; margin-top: 6px; padding: 5px 10px; background: #2563eb; color: white; text-decoration: none; border-radius: 4px; font-size: 12px;">
           Creer article
         </a>
       </td>
-    </tr>`
+    </tr>`;
+      }
     )
     .join("");
 
@@ -82,8 +86,12 @@ function buildHtml(items: DigestItem[], date: string, baseUrl: string): string {
 
 function buildText(items: DigestItem[], date: string): string {
   const lines = items.map(
-    (item, i) =>
-      `${i + 1}. ${item.title_fr}\n   Source: ${item.source} | ${item.category}\n   ${item.url}`
+    (item, i) => {
+      const pubDate = item.published
+        ? new Date(item.published).toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" })
+        : "";
+      return `${i + 1}. ${item.title_fr}\n   Source: ${item.source} | ${item.category}${pubDate ? ` | ${pubDate}` : ""}\n   ${item.url}`;
+    }
   );
   return `VEILLE FRANCAISALONDRES.COM\n${date}\n\n${lines.join("\n\n")}`;
 }
