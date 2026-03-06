@@ -21,6 +21,22 @@ app.use("/*", async (c, next) => {
   return auth(c, next);
 });
 
+// --- Home page ---
+
+app.get("/", (c) =>
+  c.html(
+    page(
+      "Veille francaisalondres.com",
+      `<p>Outil de veille media pour <a href="https://francaisalondres.com">francaisalondres.com</a></p>
+       <ul>
+         <li><a href="/trigger-digest">Envoyer le digest maintenant</a></li>
+         <li><a href="/health">Health check</a></li>
+       </ul>
+       <p class="source">Digest automatique : lundi au vendredi, 6h heure de Londres</p>`
+    )
+  )
+);
+
 // --- Article creation endpoint ---
 
 app.get("/create-article", async (c) => {
