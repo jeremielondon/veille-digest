@@ -74,15 +74,11 @@ ${textContent}
 - Meta description (excerpt) : 150-160 caracteres, engageante, avec mot-cle
 - Densite de mots-cles naturelle (pas de bourrage)
 
-## Tags SEO
-Propose 3-5 tags pertinents pour Ghost (ex: "Londres", "Immigration", "NHS", "Transport", "Brexit", "Emploi UK", etc.)
-
 Reponds UNIQUEMENT en JSON valide :
 {
   "title": "Titre SEO de l'article (max 65 car)",
   "excerpt": "Meta description SEO 150-160 caracteres",
-  "html": "<h2>Sous-titre</h2><p>Corps...</p>...<hr><p><em>Source : <a href='url'>nom</a></em></p><h3>Et vous ?</h3><p>Question pour les commentaires...</p>",
-  "tags": ["Tag1", "Tag2", "Tag3"]
+  "html": "<h2>Sous-titre</h2><p>Corps...</p>...<hr><p><em>Source : <a href='url'>nom</a></em></p><h3>Et vous ?</h3><p>Question pour les commentaires...</p>"
 }`,
       },
     ],
@@ -95,9 +91,9 @@ Reponds UNIQUEMENT en JSON valide :
 
   const article = JSON.parse(jsonMatch[0]);
 
-  // 3. Create draft in Ghost
+  // 3. Create draft in Ghost (source: "html" tells Ghost to convert HTML to Lexical)
   const token = await makeGhostToken();
-  const ghostRes = await fetch(`${env.ghostUrl}/ghost/api/admin/posts/`, {
+  const ghostRes = await fetch(`${env.ghostUrl}/ghost/api/admin/posts/?source=html`, {
     method: "POST",
     headers: {
       Authorization: `Ghost ${token}`,
@@ -110,10 +106,6 @@ Reponds UNIQUEMENT en JSON valide :
           custom_excerpt: article.excerpt,
           html: article.html,
           status: "draft",
-          tags: [
-            { name: "Veille" },
-            ...(article.tags || []).map((t: string) => ({ name: t })),
-          ],
         },
       ],
     }),
