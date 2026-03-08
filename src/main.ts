@@ -28,11 +28,9 @@ app.get("/", (c) =>
     page(
       "Veille francaisalondres.com",
       `<p>Outil de veille media pour <a href="https://francaisalondres.com">francaisalondres.com</a></p>
-       <ul>
-         <li><a href="/trigger-digest">Envoyer le digest maintenant</a></li>
-         <li><a href="/health">Health check</a></li>
-       </ul>
-       <p class="source">Digest automatique : lundi au vendredi, 6h heure de Londres</p>`
+       <a href="/trigger-digest" class="btn" onclick="this.textContent='Envoi en cours...'; this.style.opacity='0.6'; this.style.pointerEvents='none';">Envoyer le digest maintenant</a>
+       <p class="source">Digest automatique : lundi au vendredi, 6h heure de Londres</p>
+       <p class="source"><a href="/health">Health check</a></p>`
     )
   )
 );
@@ -79,10 +77,23 @@ app.get("/health", (c) =>
 app.get("/trigger-digest", async (c) => {
   try {
     await runDigest();
-    return c.json({ status: "ok", message: "Digest sent" });
+    return c.html(
+      page(
+        "Digest envoye !",
+        `<p>Le digest a ete envoye avec succes.</p>
+         <a href="/" class="btn">Retour</a>`
+      )
+    );
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    return c.json({ status: "error", message: msg }, 500);
+    return c.html(
+      page(
+        "Erreur",
+        `<p>Impossible d'envoyer le digest :</p><pre>${msg}</pre>
+         <a href="/" class="btn">Retour</a>`
+      ),
+      500
+    );
   }
 });
 
