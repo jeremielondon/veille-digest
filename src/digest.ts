@@ -1,6 +1,7 @@
 import { fetchUnreadArticles } from "./inoreader.js";
 import { rankAndTranslate } from "./summarize.js";
 import { sendDigestEmail } from "./email.js";
+import { fetchTopUkNews } from "./tavily-news.js";
 
 async function main() {
   console.log("Fetching unread articles from Inoreader...");
@@ -12,12 +13,15 @@ async function main() {
     return;
   }
 
-  console.log("Ranking and translating with Claude...");
-  const { items, mustRead } = await rankAndTranslate(articles);
-  console.log(`Selected top ${items.length} articles, ${mustRead.length} must-read topics`);
+  console.log("Ranking articles + fetching UK news...");
+  const [{ items, mustRead }, ukNews] = await Promise.all([
+    rankAndTranslate(articles),
+    fetchTopUkNews(),
+  ]);
+  console.log(`Selected top ${items.length} articles, ${mustRead.length} must-read, ${ukNews.length} UK news`);
 
   console.log("Sending digest email via Mailgun...");
-  await sendDigestEmail(items, mustRead);
+  await sendDigestEmail(items, mustRead, ukNews);
 
   console.log("Done!");
 }

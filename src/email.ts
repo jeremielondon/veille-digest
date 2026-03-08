@@ -1,9 +1,11 @@
 import { env } from "./config.js";
 import type { DigestItem, MustReadItem } from "./summarize.js";
+import type { TavilyNewsItem } from "./tavily-news.js";
 
 export async function sendDigestEmail(
   items: DigestItem[],
-  mustRead: MustReadItem[]
+  mustRead: MustReadItem[],
+  ukNews: TavilyNewsItem[]
 ): Promise<void> {
   const today = new Date().toLocaleDateString("fr-FR", {
     weekday: "long",
@@ -14,8 +16,8 @@ export async function sendDigestEmail(
 
   const baseUrl = env.createArticleUrl;
 
-  const html = buildHtml(items, mustRead, today, baseUrl);
-  const text = buildText(items, mustRead, today);
+  const html = buildHtml(items, mustRead, ukNews, today, baseUrl);
+  const text = buildText(items, mustRead, ukNews, today);
 
   const form = new URLSearchParams();
   form.append("from", env.mailgunFrom);
@@ -42,6 +44,8 @@ export async function sendDigestEmail(
 
   console.log("Email sent successfully");
 }
+
+// --- "A ne pas manquer" section ---
 
 function buildMustReadHtml(
   mustRead: MustReadItem[],
@@ -82,9 +86,52 @@ function buildMustReadHtml(
   </div>`;
 }
 
+// --- UK News section (Tavily) ---
+
+function buildUkNewsHtml(
+  ukNews: TavilyNewsItem[],
+  baseUrl: string
+): string {
+  if (ukNews.length === 0) return "";
+
+  const rows = ukNews
+    .map((news) => {
+      const domain = new URL(news.url).hostname.replace("www.", "");
+      const createUrl = `${baseUrl}?url=${encodeURIComponent(news.url)}&title=${encodeURIComponent(news.title)}&source=${encodeURIComponent(domain)}`;
+      return `
+    <tr style="border-bottom: 1px solid #dbeafe;">
+      <td style="padding: 12px 8px;">
+        <a href="${news.url}" style="color: #1a1a1a; text-decoration: none; font-weight: 700; font-size: 15px;">${news.title}</a>
+        <br/>
+        <span style="color: #1e40af; font-size: 13px;">${domain}</span>
+        <br/>
+        <span style="color: #64748b; font-size: 12px;">${news.content}</span>
+        <br/>
+        <a href="${createUrl}"
+           style="display: inline-block; margin-top: 6px; padding: 5px 10px; background: #1e40af; color: white; text-decoration: none; border-radius: 4px; font-size: 12px;">
+          Creer article
+        </a>
+      </td>
+    </tr>`;
+    })
+    .join("");
+
+  return `
+  <div style="background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px; padding: 20px; margin-bottom: 24px;">
+    <h2 style="font-size: 18px; color: #1e40af; margin: 0 0 12px 0;">Actualites UK du jour</h2>
+    <p style="color: #64748b; font-size: 13px; margin: 0 0 12px 0;">Top 3 des news importantes au Royaume-Uni via Tavily</p>
+    <table style="width: 100%; border-collapse: collapse;">
+      ${rows}
+    </table>
+  </div>`;
+}
+
+// --- Main HTML builder ---
+
 function buildHtml(
   items: DigestItem[],
   mustRead: MustReadItem[],
+  ukNews: TavilyNewsItem[],
   date: string,
   baseUrl: string
 ): string {
@@ -125,20 +172,24 @@ function buildHtml(
     <h1 style="font-size: 20px; color: #1a1a1a; margin: 0 0 4px 0;">Veille francaisalondres.com</h1>
     <p style="color: #666; font-size: 14px; margin: 0 0 20px 0;">${date} · Top ${items.length} articles</p>
     ${buildMustReadHtml(mustRead, baseUrl)}
+    ${buildUkNewsHtml(ukNews, baseUrl)}
     <table style="width: 100%; border-collapse: collapse;">
       ${rows}
     </table>
     <p style="color: #999; font-size: 12px; margin-top: 20px; text-align: center;">
-      Genere automatiquement via Inoreader + Claude · francaisalondres.com
+      Genere automatiquement via Inoreader + Claude + Tavily · francaisalondres.com
     </p>
   </div>
 </body>
 </html>`;
 }
 
+// --- Plain text builder ---
+
 function buildText(
   items: DigestItem[],
   mustRead: MustReadItem[],
+  ukNews: TavilyNewsItem[],
   date: string
 ): string {
   let text = `VEILLE FRANCAISALONDRES.COM\n${date}\n\n`;
@@ -148,8 +199,17 @@ function buildText(
     for (const mr of mustRead) {
       text += `>> ${mr.title_fr}\n   Sources: ${mr.sources.join(", ")} | ${mr.category}\n   ${mr.why}\n   ${mr.urls[0] || ""}\n\n`;
     }
-    text += "=== TOUTES LES ACTUS ===\n\n";
   }
+
+  if (ukNews.length > 0) {
+    text += "=== ACTUALITES UK DU JOUR ===\n\n";
+    for (const news of ukNews) {
+      const domain = new URL(news.url).hostname.replace("www.", "");
+      text += `>> ${news.title}\n   ${domain}\n   ${news.content}\n   ${news.url}\n\n`;
+    }
+  }
+
+  text += "=== VEILLE INOREADER ===\n\n";
 
   const lines = items.map((item, i) => {
     const pubDate = item.published
