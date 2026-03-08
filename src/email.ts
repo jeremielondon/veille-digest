@@ -1,7 +1,10 @@
 import { env } from "./config.js";
-import type { DigestItem } from "./summarize.js";
+import type { DigestItem, MustReadItem } from "./summarize.js";
 
-export async function sendDigestEmail(items: DigestItem[]): Promise<void> {
+export async function sendDigestEmail(
+  items: DigestItem[],
+  mustRead: MustReadItem[]
+): Promise<void> {
   const today = new Date().toLocaleDateString("fr-FR", {
     weekday: "long",
     year: "numeric",
@@ -11,8 +14,8 @@ export async function sendDigestEmail(items: DigestItem[]): Promise<void> {
 
   const baseUrl = env.createArticleUrl;
 
-  const html = buildHtml(items, today, baseUrl);
-  const text = buildText(items, today);
+  const html = buildHtml(items, mustRead, today, baseUrl);
+  const text = buildText(items, mustRead, today);
 
   const form = new URLSearchParams();
   form.append("from", env.mailgunFrom);
@@ -40,14 +43,63 @@ export async function sendDigestEmail(items: DigestItem[]): Promise<void> {
   console.log("Email sent successfully");
 }
 
-function buildHtml(items: DigestItem[], date: string, baseUrl: string): string {
+function buildMustReadHtml(
+  mustRead: MustReadItem[],
+  baseUrl: string
+): string {
+  if (mustRead.length === 0) return "";
+
+  const items = mustRead
+    .map((mr) => {
+      const sourcesText = mr.sources.join(", ");
+      const firstUrl = mr.urls[0] || "#";
+      const createUrl = `${baseUrl}?url=${encodeURIComponent(firstUrl)}&title=${encodeURIComponent(mr.title_fr)}&source=${encodeURIComponent(mr.sources[0] || "")}`;
+      return `
+    <tr style="border-bottom: 1px solid #fde68a;">
+      <td style="padding: 12px 8px;">
+        <a href="${firstUrl}" style="color: #1a1a1a; text-decoration: none; font-weight: 700; font-size: 15px;">${mr.title_fr}</a>
+        <br/>
+        <span style="color: #92400e; font-size: 13px;">${sourcesText} · ${mr.category}</span>
+        <br/>
+        <span style="color: #78716c; font-size: 12px; font-style: italic;">${mr.why}</span>
+        <br/>
+        <a href="${createUrl}"
+           style="display: inline-block; margin-top: 6px; padding: 5px 10px; background: #d97706; color: white; text-decoration: none; border-radius: 4px; font-size: 12px;">
+          Creer article
+        </a>
+      </td>
+    </tr>`;
+    })
+    .join("");
+
+  return `
+  <div style="background: #fffbeb; border: 1px solid #fde68a; border-radius: 8px; padding: 20px; margin-bottom: 24px;">
+    <h2 style="font-size: 18px; color: #92400e; margin: 0 0 12px 0;">A ne pas manquer</h2>
+    <p style="color: #78716c; font-size: 13px; margin: 0 0 12px 0;">Sujets repris par plusieurs medias aujourd'hui</p>
+    <table style="width: 100%; border-collapse: collapse;">
+      ${items}
+    </table>
+  </div>`;
+}
+
+function buildHtml(
+  items: DigestItem[],
+  mustRead: MustReadItem[],
+  date: string,
+  baseUrl: string
+): string {
   const rows = items
-    .map(
-      (item, i) => {
-        const pubDate = item.published
-          ? new Date(item.published).toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit" })
-          : "";
-        return `
+    .map((item, i) => {
+      const pubDate = item.published
+        ? new Date(item.published).toLocaleDateString("fr-FR", {
+            day: "numeric",
+            month: "long",
+            year: "numeric",
+            hour: "2-digit",
+            minute: "2-digit",
+          })
+        : "";
+      return `
     <tr style="border-bottom: 1px solid #eee;">
       <td style="padding: 12px 8px; vertical-align: top; color: #999; font-size: 14px;">${i + 1}</td>
       <td style="padding: 12px 8px;">
@@ -61,8 +113,7 @@ function buildHtml(items: DigestItem[], date: string, baseUrl: string): string {
         </a>
       </td>
     </tr>`;
-      }
-    )
+    })
     .join("");
 
   return `
@@ -73,6 +124,7 @@ function buildHtml(items: DigestItem[], date: string, baseUrl: string): string {
   <div style="background: white; border-radius: 8px; padding: 24px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
     <h1 style="font-size: 20px; color: #1a1a1a; margin: 0 0 4px 0;">Veille francaisalondres.com</h1>
     <p style="color: #666; font-size: 14px; margin: 0 0 20px 0;">${date} · Top ${items.length} articles</p>
+    ${buildMustReadHtml(mustRead, baseUrl)}
     <table style="width: 100%; border-collapse: collapse;">
       ${rows}
     </table>
@@ -84,14 +136,32 @@ function buildHtml(items: DigestItem[], date: string, baseUrl: string): string {
 </html>`;
 }
 
-function buildText(items: DigestItem[], date: string): string {
-  const lines = items.map(
-    (item, i) => {
-      const pubDate = item.published
-        ? new Date(item.published).toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" })
-        : "";
-      return `${i + 1}. ${item.title_fr}\n   Source: ${item.source} | ${item.category}${pubDate ? ` | ${pubDate}` : ""}\n   ${item.url}`;
+function buildText(
+  items: DigestItem[],
+  mustRead: MustReadItem[],
+  date: string
+): string {
+  let text = `VEILLE FRANCAISALONDRES.COM\n${date}\n\n`;
+
+  if (mustRead.length > 0) {
+    text += "=== A NE PAS MANQUER ===\n\n";
+    for (const mr of mustRead) {
+      text += `>> ${mr.title_fr}\n   Sources: ${mr.sources.join(", ")} | ${mr.category}\n   ${mr.why}\n   ${mr.urls[0] || ""}\n\n`;
     }
-  );
-  return `VEILLE FRANCAISALONDRES.COM\n${date}\n\n${lines.join("\n\n")}`;
+    text += "=== TOUTES LES ACTUS ===\n\n";
+  }
+
+  const lines = items.map((item, i) => {
+    const pubDate = item.published
+      ? new Date(item.published).toLocaleDateString("fr-FR", {
+          day: "numeric",
+          month: "long",
+          year: "numeric",
+        })
+      : "";
+    return `${i + 1}. ${item.title_fr}\n   Source: ${item.source} | ${item.category}${pubDate ? ` | ${pubDate}` : ""}\n   ${item.url}`;
+  });
+  text += lines.join("\n\n");
+
+  return text;
 }

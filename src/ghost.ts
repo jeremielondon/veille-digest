@@ -15,57 +15,226 @@ async function makeGhostToken(): Promise<string> {
     .sign(key);
 }
 
+// --- Internal linking: search existing Ghost posts ---
+
+interface GhostPost {
+  title: string;
+  slug: string;
+  url: string;
+}
+
+async function findRelatedPosts(keywords: string[]): Promise<GhostPost[]> {
+  const token = await makeGhostToken();
+  const allPosts: GhostPost[] = [];
+  const seen = new Set<string>();
+
+  for (const keyword of keywords.slice(0, 5)) {
+    const sanitized = keyword.replace(/'/g, "\\'");
+    const filter = `status:published+title:~'${sanitized}'`;
+    const url = new URL(`${env.ghostUrl}/ghost/api/admin/posts/`);
+    url.searchParams.append("limit", "5");
+    url.searchParams.append("fields", "title,slug,url");
+    url.searchParams.append("filter", filter);
+
+    try {
+      const res = await fetch(url.toString(), {
+        headers: { Authorization: `Ghost ${token}` },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        for (const post of data.posts || []) {
+          if (!seen.has(post.slug)) {
+            seen.add(post.slug);
+            allPosts.push(post);
+          }
+        }
+      }
+    } catch {
+      // Skip failed searches silently
+    }
+  }
+
+  return allPosts.slice(0, 10);
+}
+
+// --- Web research: fetch additional sources ---
+
+async function webResearch(topic: string, sourceUrl: string): Promise<string> {
+  const searchResponse = await client.messages.create({
+    model: "claude-sonnet-4-20250514",
+    max_tokens: 256,
+    messages: [
+      {
+        role: "user",
+        content: `A partir de ce sujet, donne-moi 3 requetes de recherche web en anglais et 2 en francais pour trouver des informations complementaires fiables (chiffres officiels, contexte, donnees gouvernementales, analyses).
+
+Sujet : ${topic}
+
+Reponds UNIQUEMENT en JSON : ["requete 1", "requete 2", ...]`,
+      },
+    ],
+  });
+
+  const queryText =
+    searchResponse.content[0].type === "text"
+      ? searchResponse.content[0].text
+      : "";
+  const queryMatch = queryText.match(/\[[\s\S]*\]/);
+  if (!queryMatch) return "";
+
+  const queries: string[] = JSON.parse(queryMatch[0]);
+  const results: string[] = [];
+
+  for (const query of queries.slice(0, 4)) {
+    try {
+      const searchUrl = `https://www.googleapis.com/customsearch/v1?key=${env.googleSearchApiKey}&cx=${env.googleSearchCx}&q=${encodeURIComponent(query)}&num=3`;
+      const res = await fetch(searchUrl, {
+        signal: AbortSignal.timeout(8000),
+      });
+      if (!res.ok) continue;
+      const data = await res.json();
+      for (const item of data.items || []) {
+        if (item.link === sourceUrl) continue;
+        results.push(
+          `Titre: ${item.title}\nURL: ${item.link}\nExtrait: ${item.snippet || ""}`
+        );
+      }
+    } catch {
+      // Skip failed searches
+    }
+  }
+
+  return results.slice(0, 8).join("\n\n");
+}
+
+// --- Main: create Ghost draft ---
+
 export async function createGhostDraft(
   sourceUrl: string,
   titleFr: string,
   sourceName: string
 ): Promise<string> {
   // 1. Fetch source content
+  console.log("Fetching source content...");
   const pageRes = await fetch(sourceUrl, {
     headers: { "User-Agent": "Mozilla/5.0 (compatible; FALBot/1.0)" },
     signal: AbortSignal.timeout(10000),
   });
   const pageHtml = await pageRes.text();
 
-  // Extract text content (basic)
   const textContent = pageHtml
     .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, "")
     .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, "")
     .replace(/<[^>]+>/g, " ")
     .replace(/\s+/g, " ")
     .trim()
-    .slice(0, 10000);
+    .slice(0, 12000);
 
-  // 2. Generate article with Claude
+  // 2. Extract keywords for internal linking + web research
+  console.log("Extracting keywords...");
+  const keywordResponse = await client.messages.create({
+    model: "claude-sonnet-4-20250514",
+    max_tokens: 200,
+    messages: [
+      {
+        role: "user",
+        content: `Extrais 5 mots-cles principaux de ce sujet pour rechercher des articles lies. Mots simples, en francais.
+
+Titre: ${titleFr}
+Contenu: ${textContent.slice(0, 2000)}
+
+Reponds UNIQUEMENT en JSON : ["mot1", "mot2", ...]`,
+      },
+    ],
+  });
+  const kwText =
+    keywordResponse.content[0].type === "text"
+      ? keywordResponse.content[0].text
+      : "";
+  const kwMatch = kwText.match(/\[[\s\S]*\]/);
+  const keywords: string[] = kwMatch ? JSON.parse(kwMatch[0]) : [];
+
+  // 3. Web research + Ghost search in parallel
+  console.log("Researching topic & finding related posts...");
+  const [webResults, relatedPosts] = await Promise.all([
+    env.googleSearchApiKey
+      ? webResearch(titleFr, sourceUrl)
+      : Promise.resolve(""),
+    findRelatedPosts(keywords),
+  ]);
+
+  // 4. Build internal links context
+  const internalLinksContext =
+    relatedPosts.length > 0
+      ? `\n\n## Articles existants sur francaisalondres.com (pour maillage interne)
+Integre naturellement 2 a 4 liens vers ces articles dans le corps du texte, sous forme de "Lire aussi" ou de liens contextuels dans les phrases.
+${relatedPosts.map((p) => `- "${p.title}" : ${p.url}`).join("\n")}`
+      : "";
+
+  // 5. Build web research context
+  const webResearchContext = webResults
+    ? `\n\n## Recherche complementaire (sources supplementaires)
+Utilise ces informations pour enrichir, recouper et verifier les faits. Cite les sources supplementaires utilisees dans l'article.
+${webResults}`
+    : "";
+
+  // 6. Generate article with Claude
+  console.log("Generating article...");
   const response = await client.messages.create({
     model: "claude-sonnet-4-20250514",
-    max_tokens: 4096,
+    max_tokens: 8192,
     messages: [
       {
         role: "user",
         content: `Tu es journaliste et redacteur SEO pour francaisalondres.com, un media en ligne pour les Francais et francophones vivant a Londres et au Royaume-Uni (45 000+ membres).
 
-A partir de cette source, redige un article complet EN FRANCAIS optimise pour le referencement.
+A partir de cette source et des recherches complementaires, redige un article approfondi EN FRANCAIS optimise pour le referencement.
 
 Titre suggere : ${titleFr}
-Source : ${sourceName} (${sourceUrl})
+Source principale : ${sourceName} (${sourceUrl})
 
 Contenu source :
 ${textContent}
+${webResearchContext}
+${internalLinksContext}
 
 ## Regles de redaction
 - Redige en francais, ton journalistique professionnel et accessible
+- Article LONG et approfondi : minimum 800 mots, idealement 1000-1200 mots
 - Adapte le contenu pour un public francais vivant au UK
 - Explique le contexte si necessaire (lois UK, institutions, termes anglais)
 - Ne copie pas mot pour mot la source, reformule et enrichis
-- Enrichis l'article avec des informations complementaires pertinentes (chiffres, contexte historique, comparaison FR/UK) quand c'est utile
+- RECOUPER les informations : verifie les faits avec les sources complementaires
+- Chaque information ajoutee doit etre sourcee et verifiable
+- Cite toutes les sources utilisees (pas seulement la source principale)
 
 ## Structure de l'article
-1. Titre accrocheur et optimise SEO (inclure des mots-cles pertinents)
-2. Chapeau (2 phrases qui resument l'essentiel et donnent envie de lire)
-3. Corps de l'article (4-6 paragraphes bien structures avec des sous-titres H2/H3)
-4. Source : mention de la source originale avec lien
-5. Appel aux commentaires : une question ouverte a la fin pour inciter les lecteurs a reagir et partager leur experience (ex: "Et vous, avez-vous ete concerne par... ?", "Qu'en pensez-vous ?", "Partagez votre experience dans les commentaires")
+1. **Titre** accrocheur et optimise SEO (max 65 caracteres, mots-cles pertinents)
+2. **En bref** — encadre de 3-4 bullet points resumant les points cles (ce qu'il faut retenir)
+3. **Chapeau** — 2-3 phrases qui resument l'essentiel et donnent envie de lire
+4. **Corps de l'article** — 5-8 paragraphes bien structures avec des sous-titres H2/H3 :
+   - Contexte et faits principaux
+   - Donnees chiffrees, comparaisons FR/UK si pertinent
+   - Impact concret pour les Francais de Londres/UK
+   - Analyse et perspectives
+5. **Sources** — liste des sources utilisees avec liens
+6. **Participez !** — invite les lecteurs a reagir dans les commentaires, donner leur avis, partager leur experience, ou nous transmettre des sources et informations supplementaires sur le sujet
+
+## Format "En bref"
+Le bloc "En bref" doit etre formate ainsi :
+<div style="background:#f0f4ff;border-left:4px solid #2563eb;padding:16px 20px;margin:20px 0;border-radius:4px;">
+<strong>En bref</strong>
+<ul style="margin:8px 0 0 0;">
+<li>Point cle 1</li>
+<li>Point cle 2</li>
+<li>Point cle 3</li>
+</ul>
+</div>
+
+## Maillage interne
+- Integre les liens vers les articles existants de francaisalondres.com de maniere naturelle dans le texte
+- Utilise des formulations comme "Comme nous l'expliquions dans [titre article](url)" ou des encarts "Lire aussi : [titre](url)"
+- Ne force pas les liens s'ils ne sont pas pertinents
 
 ## Optimisation SEO
 - Titre : inclure le mot-cle principal naturellement, max 65 caracteres
@@ -73,12 +242,15 @@ ${textContent}
 - Utiliser des sous-titres H2/H3 avec des mots-cles
 - Meta description (excerpt) : 150-160 caracteres, engageante, avec mot-cle
 - Densite de mots-cles naturelle (pas de bourrage)
+- Slug SEO optimise (court, mots-cles, sans accent)
 
 Reponds UNIQUEMENT en JSON valide :
 {
   "title": "Titre SEO de l'article (max 65 car)",
+  "slug": "slug-seo-optimise",
   "excerpt": "Meta description SEO 150-160 caracteres",
-  "html": "<h2>Sous-titre</h2><p>Corps...</p>...<hr><p><em>Source : <a href='url'>nom</a></em></p><h3>Et vous ?</h3><p>Question pour les commentaires...</p>"
+  "html": "<div style=\\"...\\">En bref...</div><p>Chapeau...</p><h2>Sous-titre</h2><p>Corps...</p>...<h3>Sources</h3><ul><li>...</li></ul><h3>Participez !</h3><p>...</p>",
+  "keywords": ["mot-cle-1", "mot-cle-2", "mot-cle-3"]
 }`,
       },
     ],
@@ -91,25 +263,30 @@ Reponds UNIQUEMENT en JSON valide :
 
   const article = JSON.parse(jsonMatch[0]);
 
-  // 3. Create draft in Ghost (source: "html" tells Ghost to convert HTML to Lexical)
+  // 7. Create draft in Ghost
+  console.log("Creating Ghost draft...");
   const token = await makeGhostToken();
-  const ghostRes = await fetch(`${env.ghostUrl}/ghost/api/admin/posts/?source=html`, {
-    method: "POST",
-    headers: {
-      Authorization: `Ghost ${token}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      posts: [
-        {
-          title: article.title,
-          custom_excerpt: article.excerpt,
-          html: article.html,
-          status: "draft",
-        },
-      ],
-    }),
-  });
+  const ghostRes = await fetch(
+    `${env.ghostUrl}/ghost/api/admin/posts/?source=html`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Ghost ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        posts: [
+          {
+            title: article.title,
+            slug: article.slug,
+            custom_excerpt: article.excerpt,
+            html: article.html,
+            status: "draft",
+          },
+        ],
+      }),
+    }
+  );
 
   if (!ghostRes.ok) {
     const err = await ghostRes.text();
@@ -119,5 +296,8 @@ Reponds UNIQUEMENT en JSON valide :
   const ghostData = await ghostRes.json();
   const postUrl = `${env.ghostUrl}/ghost/#/editor/post/${ghostData.posts[0].id}`;
 
+  console.log(
+    `Draft created: "${article.title}" (${relatedPosts.length} internal links, web research: ${webResults ? "yes" : "no"})`
+  );
   return postUrl;
 }

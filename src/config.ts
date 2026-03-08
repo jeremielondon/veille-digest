@@ -27,4 +27,6 @@ export const env = {
   adminUsername: required("ADMIN_USERNAME"),
   adminPassword: required("ADMIN_PASSWORD"),
   createArticleUrl: process.env.CREATE_ARTICLE_URL || "http://localhost:3001/create-article",
+  googleSearchApiKey: process.env.GOOGLE_SEARCH_API_KEY || "",
+  googleSearchCx: process.env.GOOGLE_SEARCH_CX || "",
 };

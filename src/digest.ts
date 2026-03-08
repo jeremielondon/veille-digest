@@ -13,11 +13,11 @@ async function main() {
   }
 
   console.log("Ranking and translating with Claude...");
-  const digest = await rankAndTranslate(articles);
-  console.log(`Selected top ${digest.length} articles`);
+  const { items, mustRead } = await rankAndTranslate(articles);
+  console.log(`Selected top ${items.length} articles, ${mustRead.length} must-read topics`);
 
   console.log("Sending digest email via Mailgun...");
-  await sendDigestEmail(digest);
+  await sendDigestEmail(items, mustRead);
 
   console.log("Done!");
 }
