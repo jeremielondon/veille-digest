@@ -4,7 +4,7 @@ import { env } from "./config.js";
 
 const client = new Anthropic({ apiKey: env.anthropicApiKey });
 
-async function makeGhostToken(): Promise<string> {
+export async function makeGhostToken(): Promise<string> {
   const [id, secret] = env.ghostAdminKey.split(":");
   const key = Buffer.from(secret, "hex");
   return new SignJWT({})
@@ -23,7 +23,7 @@ interface GhostPost {
   url: string;
 }
 
-async function findRelatedPosts(keywords: string[]): Promise<GhostPost[]> {
+export async function findRelatedPosts(keywords: string[]): Promise<GhostPost[]> {
   const token = await makeGhostToken();
   const allPosts: GhostPost[] = [];
   const seen = new Set<string>();
@@ -339,7 +339,27 @@ Reponds UNIQUEMENT en JSON valide :
   const article = JSON.parse(jsonMatch[0]);
 
   // 7. Create draft in Ghost
-  console.log("Creating Ghost draft...");
+  const postUrl = await publishDraft({
+    title: article.title,
+    slug: article.slug,
+    excerpt: article.excerpt,
+    html: article.html,
+  });
+
+  console.log(
+    `Draft created: "${article.title}" (${relatedPosts.length} internal links, web research: ${research.searchResults ? "yes" : "no"}, tavily answer: ${research.tavilyAnswer ? "yes" : "no"})`
+  );
+  return postUrl;
+}
+
+// --- Publish draft to Ghost ---
+
+export async function publishDraft(params: {
+  title: string;
+  slug: string;
+  excerpt: string;
+  html: string;
+}): Promise<string> {
   const token = await makeGhostToken();
   const ghostRes = await fetch(
     `${env.ghostUrl}/ghost/api/admin/posts/?source=html`,
@@ -352,10 +372,10 @@ Reponds UNIQUEMENT en JSON valide :
       body: JSON.stringify({
         posts: [
           {
-            title: article.title,
-            slug: article.slug,
-            custom_excerpt: article.excerpt,
-            html: article.html,
+            title: params.title,
+            slug: params.slug,
+            custom_excerpt: params.excerpt,
+            html: params.html,
             status: "draft",
           },
         ],
@@ -369,10 +389,5 @@ Reponds UNIQUEMENT en JSON valide :
   }
 
   const ghostData = await ghostRes.json();
-  const postUrl = `${env.ghostUrl}/ghost/#/editor/post/${ghostData.posts[0].id}`;
-
-  console.log(
-    `Draft created: "${article.title}" (${relatedPosts.length} internal links, web research: ${research.searchResults ? "yes" : "no"}, tavily answer: ${research.tavilyAnswer ? "yes" : "no"})`
-  );
-  return postUrl;
+  return `${env.ghostUrl}/ghost/#/editor/post/${ghostData.posts[0].id}`;
 }

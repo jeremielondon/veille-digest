@@ -8,6 +8,8 @@ import { fetchUnreadArticles } from "./inoreader.js";
 import { rankAndTranslate } from "./summarize.js";
 import { sendDigestEmail } from "./email.js";
 import { fetchTopUkNews } from "./tavily-news.js";
+import { researchTopic, researchMore, extractUrls, generatePlan, generateArticle } from "./wizard.js";
+import { wizardPage } from "./wizard-page.js";
 
 const app = new Hono();
 
@@ -29,7 +31,8 @@ app.get("/", (c) =>
     page(
       "Veille francaisalondres.com",
       `<p>Outil de veille media pour <a href="https://francaisalondres.com">francaisalondres.com</a></p>
-       <a href="/trigger-digest" class="btn" onclick="this.textContent='Envoi en cours...'; this.style.opacity='0.6'; this.style.pointerEvents='none';">Envoyer le digest maintenant</a>
+       <a href="/write" class="btn">Ecrire un article</a>
+       <a href="/trigger-digest" class="btn" style="background:#6b7280;margin-left:8px;" onclick="this.textContent='Envoi en cours...'; this.style.opacity='0.6'; this.style.pointerEvents='none';">Envoyer le digest</a>
        <p class="source">Digest automatique : lundi au vendredi, 6h heure de Londres</p>
        <p class="source"><a href="/health">Health check</a></p>`
     )
@@ -98,6 +101,70 @@ app.get("/trigger-digest", async (c) => {
   }
 });
 
+// --- Article wizard ---
+
+app.get("/write", (c) => c.html(wizardPage()));
+
+app.post("/api/research", async (c) => {
+  try {
+    const { instructions } = await c.req.json();
+    if (!instructions) return c.json({ error: "Instructions manquantes" }, 400);
+    const result = await researchTopic(instructions);
+    return c.json(result);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return c.json({ error: msg }, 500);
+  }
+});
+
+app.post("/api/research-more", async (c) => {
+  try {
+    const { query } = await c.req.json();
+    if (!query) return c.json({ error: "Query manquante" }, 400);
+    const sources = await researchMore(query);
+    return c.json({ sources });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return c.json({ error: msg }, 500);
+  }
+});
+
+app.post("/api/extract-url", async (c) => {
+  try {
+    const { urls } = await c.req.json();
+    if (!urls || urls.length === 0) return c.json({ error: "URLs manquantes" }, 400);
+    const sources = await extractUrls(urls);
+    return c.json({ sources });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return c.json({ error: msg }, 500);
+  }
+});
+
+app.post("/api/plan", async (c) => {
+  try {
+    const { instructions, sources, feedback } = await c.req.json();
+    if (!instructions || !sources) return c.json({ error: "Donnees manquantes" }, 400);
+    const plan = await generatePlan(instructions, sources, feedback);
+    return c.json(plan);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return c.json({ error: msg }, 500);
+  }
+});
+
+app.post("/api/create-draft", async (c) => {
+  try {
+    const { instructions, plan, sources } = await c.req.json();
+    if (!plan || !sources) return c.json({ error: "Donnees manquantes" }, 400);
+    const result = await generateArticle(instructions, plan, sources);
+    return c.json(result);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return c.json({ error: msg }, 500);
+  }
+});
+
 // --- Digest cron: Monday-Friday at 6:00 AM London time ---
 
 cron.schedule(
@@ -157,6 +224,7 @@ serve({ fetch: app.fetch, port }, () => {
   console.log("Auth: basic auth enabled on all routes except /health");
   console.log("Endpoints:");
   console.log("  GET /health");
+  console.log("  GET /write              — article creation wizard");
   console.log("  GET /trigger-digest");
   console.log("  GET /create-article?url=...&title=...&source=...");
 });
