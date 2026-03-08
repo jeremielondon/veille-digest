@@ -57,45 +57,122 @@ async function findRelatedPosts(keywords: string[]): Promise<GhostPost[]> {
   return allPosts.slice(0, 10);
 }
 
-// --- Web research via Tavily ---
+// --- Tavily: extract source content ---
 
-async function webResearch(topic: string, sourceUrl: string): Promise<string> {
-  const results: string[] = [];
+async function extractSourceContent(sourceUrl: string): Promise<string> {
+  if (!env.tavilyApiKey) return "";
 
-  // Search in English and French for broader coverage
-  const queries = [
-    `${topic} UK London`,
-    `${topic} France expatriés Royaume-Uni`,
+  try {
+    const res = await fetch("https://api.tavily.com/extract", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        api_key: env.tavilyApiKey,
+        urls: [sourceUrl],
+        extract_depth: "advanced",
+        format: "markdown",
+      }),
+      signal: AbortSignal.timeout(20000),
+    });
+    if (!res.ok) return "";
+    const data = await res.json();
+    const content = data.results?.[0]?.content || "";
+    return content.slice(0, 15000);
+  } catch {
+    return "";
+  }
+}
+
+// --- Tavily: web research ---
+
+interface TavilyResult {
+  title: string;
+  url: string;
+  content: string;
+  raw_content?: string;
+  score: number;
+}
+
+async function webResearch(
+  topic: string,
+  sourceUrl: string
+): Promise<{ searchResults: string; tavilyAnswer: string }> {
+  if (!env.tavilyApiKey)
+    return { searchResults: "", tavilyAnswer: "" };
+
+  const sourceHostname = new URL(sourceUrl).hostname;
+  const allResults: TavilyResult[] = [];
+  let tavilyAnswer = "";
+
+  // Two parallel searches: news-focused (EN) + general context (FR)
+  const searches = [
+    {
+      query: `${topic} UK London`,
+      topic: "news" as const,
+      time_range: "week" as const,
+      country: "gb" as const,
+      include_answer: "advanced" as const,
+    },
+    {
+      query: `${topic} France expatriés Royaume-Uni`,
+      topic: "news" as const,
+      time_range: "month" as const,
+    },
   ];
 
-  for (const query of queries) {
+  const promises = searches.map(async (params) => {
     try {
       const res = await fetch("https://api.tavily.com/search", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           api_key: env.tavilyApiKey,
-          query,
+          query: params.query,
           max_results: 5,
           search_depth: "advanced",
-          include_answer: false,
-          exclude_domains: [new URL(sourceUrl).hostname],
+          topic: params.topic,
+          time_range: params.time_range,
+          include_answer: params.include_answer || false,
+          include_raw_content: "markdown",
+          exclude_domains: [sourceHostname, "frenchmorning.com", "lepetitjournal.com"],
+          country: params.country,
         }),
-        signal: AbortSignal.timeout(15000),
+        signal: AbortSignal.timeout(20000),
       });
-      if (!res.ok) continue;
+      if (!res.ok) return;
       const data = await res.json();
+      if (data.answer) tavilyAnswer = data.answer;
       for (const item of data.results || []) {
-        results.push(
-          `Titre: ${item.title}\nURL: ${item.url}\nContenu: ${(item.content || "").slice(0, 500)}`
-        );
+        allResults.push(item);
       }
     } catch {
       // Skip failed searches
     }
-  }
+  });
 
-  return results.slice(0, 8).join("\n\n");
+  await Promise.all(promises);
+
+  // Deduplicate by URL and sort by score
+  const seen = new Set<string>();
+  const unique = allResults.filter((r) => {
+    if (seen.has(r.url)) return false;
+    seen.add(r.url);
+    return true;
+  });
+  unique.sort((a, b) => (b.score || 0) - (a.score || 0));
+
+  const formatted = unique.slice(0, 8).map((item) => {
+    // Use raw_content (full markdown) if available, otherwise content (snippet)
+    const content = item.raw_content
+      ? item.raw_content.slice(0, 1500)
+      : (item.content || "").slice(0, 500);
+    return `Source: ${item.title}\nURL: ${item.url}\nContenu:\n${content}`;
+  });
+
+  return {
+    searchResults: formatted.join("\n\n---\n\n"),
+    tavilyAnswer,
+  };
 }
 
 // --- Main: create Ghost draft ---
@@ -105,23 +182,27 @@ export async function createGhostDraft(
   titleFr: string,
   sourceName: string
 ): Promise<string> {
-  // 1. Fetch source content
-  console.log("Fetching source content...");
-  const pageRes = await fetch(sourceUrl, {
-    headers: { "User-Agent": "Mozilla/5.0 (compatible; FALBot/1.0)" },
-    signal: AbortSignal.timeout(10000),
-  });
-  const pageHtml = await pageRes.text();
+  // 1. Extract source content via Tavily (clean markdown) + fallback to raw fetch
+  console.log("Extracting source content via Tavily...");
+  let textContent = await extractSourceContent(sourceUrl);
 
-  const textContent = pageHtml
-    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, "")
-    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, "")
-    .replace(/<[^>]+>/g, " ")
-    .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, 12000);
+  if (!textContent) {
+    console.log("Tavily extract failed, falling back to raw fetch...");
+    const pageRes = await fetch(sourceUrl, {
+      headers: { "User-Agent": "Mozilla/5.0 (compatible; FALBot/1.0)" },
+      signal: AbortSignal.timeout(10000),
+    });
+    const pageHtml = await pageRes.text();
+    textContent = pageHtml
+      .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, "")
+      .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, "")
+      .replace(/<[^>]+>/g, " ")
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, 12000);
+  }
 
-  // 2. Extract keywords for internal linking + web research
+  // 2. Extract keywords for internal linking
   console.log("Extracting keywords...");
   const keywordResponse = await client.messages.create({
     model: "claude-sonnet-4-20250514",
@@ -147,10 +228,8 @@ Reponds UNIQUEMENT en JSON : ["mot1", "mot2", ...]`,
 
   // 3. Web research + Ghost search in parallel
   console.log("Researching topic & finding related posts...");
-  const [webResults, relatedPosts] = await Promise.all([
-    env.tavilyApiKey
-      ? webResearch(titleFr, sourceUrl)
-      : Promise.resolve(""),
+  const [research, relatedPosts] = await Promise.all([
+    webResearch(titleFr, sourceUrl),
     findRelatedPosts(keywords),
   ]);
 
@@ -163,11 +242,16 @@ ${relatedPosts.map((p) => `- "${p.title}" : ${p.url}`).join("\n")}`
       : "";
 
   // 5. Build web research context
-  const webResearchContext = webResults
-    ? `\n\n## Recherche complementaire (sources supplementaires)
+  let webResearchContext = "";
+  if (research.tavilyAnswer) {
+    webResearchContext += `\n\n## Synthese des sources complementaires (generee par Tavily)
+${research.tavilyAnswer}`;
+  }
+  if (research.searchResults) {
+    webResearchContext += `\n\n## Sources complementaires detaillees
 Utilise ces informations pour enrichir, recouper et verifier les faits. Cite les sources supplementaires utilisees dans l'article.
-${webResults}`
-    : "";
+${research.searchResults}`;
+  }
 
   // 6. Generate article with Claude
   console.log("Generating article...");
@@ -288,7 +372,7 @@ Reponds UNIQUEMENT en JSON valide :
   const postUrl = `${env.ghostUrl}/ghost/#/editor/post/${ghostData.posts[0].id}`;
 
   console.log(
-    `Draft created: "${article.title}" (${relatedPosts.length} internal links, web research: ${webResults ? "yes" : "no"})`
+    `Draft created: "${article.title}" (${relatedPosts.length} internal links, web research: ${research.searchResults ? "yes" : "no"}, tavily answer: ${research.tavilyAnswer ? "yes" : "no"})`
   );
   return postUrl;
 }
