@@ -57,46 +57,37 @@ async function findRelatedPosts(keywords: string[]): Promise<GhostPost[]> {
   return allPosts.slice(0, 10);
 }
 
-// --- Web research: fetch additional sources ---
+// --- Web research via Tavily ---
 
 async function webResearch(topic: string, sourceUrl: string): Promise<string> {
-  const searchResponse = await client.messages.create({
-    model: "claude-sonnet-4-20250514",
-    max_tokens: 256,
-    messages: [
-      {
-        role: "user",
-        content: `A partir de ce sujet, donne-moi 3 requetes de recherche web en anglais et 2 en francais pour trouver des informations complementaires fiables (chiffres officiels, contexte, donnees gouvernementales, analyses).
-
-Sujet : ${topic}
-
-Reponds UNIQUEMENT en JSON : ["requete 1", "requete 2", ...]`,
-      },
-    ],
-  });
-
-  const queryText =
-    searchResponse.content[0].type === "text"
-      ? searchResponse.content[0].text
-      : "";
-  const queryMatch = queryText.match(/\[[\s\S]*\]/);
-  if (!queryMatch) return "";
-
-  const queries: string[] = JSON.parse(queryMatch[0]);
   const results: string[] = [];
 
-  for (const query of queries.slice(0, 4)) {
+  // Search in English and French for broader coverage
+  const queries = [
+    `${topic} UK London`,
+    `${topic} France expatriés Royaume-Uni`,
+  ];
+
+  for (const query of queries) {
     try {
-      const searchUrl = `https://www.googleapis.com/customsearch/v1?key=${env.googleSearchApiKey}&cx=${env.googleSearchCx}&q=${encodeURIComponent(query)}&num=3`;
-      const res = await fetch(searchUrl, {
-        signal: AbortSignal.timeout(8000),
+      const res = await fetch("https://api.tavily.com/search", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          api_key: env.tavilyApiKey,
+          query,
+          max_results: 5,
+          search_depth: "advanced",
+          include_answer: false,
+          exclude_domains: [new URL(sourceUrl).hostname],
+        }),
+        signal: AbortSignal.timeout(15000),
       });
       if (!res.ok) continue;
       const data = await res.json();
-      for (const item of data.items || []) {
-        if (item.link === sourceUrl) continue;
+      for (const item of data.results || []) {
         results.push(
-          `Titre: ${item.title}\nURL: ${item.link}\nExtrait: ${item.snippet || ""}`
+          `Titre: ${item.title}\nURL: ${item.url}\nContenu: ${(item.content || "").slice(0, 500)}`
         );
       }
     } catch {
@@ -157,7 +148,7 @@ Reponds UNIQUEMENT en JSON : ["mot1", "mot2", ...]`,
   // 3. Web research + Ghost search in parallel
   console.log("Researching topic & finding related posts...");
   const [webResults, relatedPosts] = await Promise.all([
-    env.googleSearchApiKey
+    env.tavilyApiKey
       ? webResearch(titleFr, sourceUrl)
       : Promise.resolve(""),
     findRelatedPosts(keywords),
