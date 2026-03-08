@@ -28,4 +28,6 @@ export const env = {
   adminPassword: required("ADMIN_PASSWORD"),
   createArticleUrl: process.env.CREATE_ARTICLE_URL || "http://localhost:3001/create-article",
   tavilyApiKey: process.env.TAVILY_API_KEY || "",
+  plausibleApiKey: process.env.PLAUSIBLE_API_KEY || "",
+  plausibleSiteId: process.env.PLAUSIBLE_SITE_ID || "francaisalondres.com",
 };

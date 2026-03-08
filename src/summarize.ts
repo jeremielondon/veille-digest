@@ -1,5 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { env } from "./config.js";
+import { loadScores } from "./scoring.js";
 
 const client = new Anthropic({ apiKey: env.anthropicApiKey });
 
@@ -44,6 +45,20 @@ export async function rankAndTranslate(
     )
     .join("\n\n");
 
+  // Load scoring data if available
+  let scoringContext = "";
+  const scores = await loadScores();
+  if (scores && scores.thematiques.length > 0) {
+    const ranked = scores.thematiques
+      .filter((t) => t.score > 0)
+      .map((t) => `- ${t.label}: score ${t.score} (duree moy. ${Math.round(t.avgDuration)}s, rebond ${Math.round(t.avgBounceRate)}%)`)
+      .join("\n");
+    scoringContext = `\n\n## Scoring par thematique (base sur les 30 derniers jours d'analytics)
+Utilise ces scores pour BOOSTER la pertinence des articles qui correspondent aux thematiques les mieux notees. Un article sur une thematique a score eleve devrait etre mieux classe.
+
+${ranked}`;
+  }
+
   const response = await client.messages.create({
     model: "claude-sonnet-4-20250514",
     max_tokens: 6144,
@@ -52,7 +67,7 @@ export async function rankAndTranslate(
         role: "user",
         content: `Tu es un redacteur en chef pour francaisalondres.com, un media en ligne pour les Francais et francophones vivant a Londres et au Royaume-Uni.
 
-Voici ${articles.length} articles collectes aujourd'hui.
+Voici ${articles.length} articles collectes aujourd'hui.${scoringContext}
 
 ## TACHE 1 : Selection des ${env.digestMaxArticles} articles les plus pertinents
 

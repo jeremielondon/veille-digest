@@ -10,6 +10,8 @@ import { sendDigestEmail } from "./email.js";
 import { fetchTopUkNews } from "./tavily-news.js";
 import { researchTopic, researchMore, extractUrls, generatePlan, generateArticle } from "./wizard.js";
 import { wizardPage } from "./wizard-page.js";
+import { runScoring, loadScores, loadConfig, saveConfig } from "./scoring.js";
+import { scoringPage } from "./scoring-page.js";
 
 const app = new Hono();
 
@@ -32,6 +34,7 @@ app.get("/", (c) =>
       "Veille francaisalondres.com",
       `<p>Outil de veille media pour <a href="https://francaisalondres.com">francaisalondres.com</a></p>
        <a href="/write" class="btn">Ecrire un article</a>
+       <a href="/scoring" class="btn" style="background:#10b981;margin-left:8px;">Scoring</a>
        <a href="/trigger-digest" class="btn" style="background:#6b7280;margin-left:8px;" onclick="this.textContent='Envoi en cours...'; this.style.opacity='0.6'; this.style.pointerEvents='none';">Envoyer le digest</a>
        <p class="source">Digest automatique : lundi au vendredi, 6h heure de Londres</p>
        <p class="source"><a href="/health">Health check</a></p>`
@@ -165,6 +168,50 @@ app.post("/api/create-draft", async (c) => {
   }
 });
 
+// --- Scoring dashboard ---
+
+app.get("/scoring", async (c) => {
+  const data = await loadScores();
+  return c.html(scoringPage(data));
+});
+
+app.post("/api/scoring/run", async (c) => {
+  try {
+    await runScoring();
+    return c.json({ ok: true });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return c.json({ error: msg }, 500);
+  }
+});
+
+app.post("/api/scoring/config", async (c) => {
+  try {
+    const config = await c.req.json();
+    await saveConfig(config);
+    return c.json({ ok: true });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return c.json({ error: msg }, 500);
+  }
+});
+
+// --- Scoring cron: Sunday 22:00 London time ---
+
+cron.schedule(
+  "0 22 * * 0",
+  async () => {
+    console.log(`[${new Date().toISOString()}] Running weekly scoring job...`);
+    try {
+      await runScoring();
+      console.log("Weekly scoring completed.");
+    } catch (err) {
+      console.error("Weekly scoring failed:", err);
+    }
+  },
+  { timezone: "Europe/London" }
+);
+
 // --- Digest cron: Monday-Friday at 6:00 AM London time ---
 
 cron.schedule(
@@ -222,9 +269,11 @@ serve({ fetch: app.fetch, port }, () => {
   console.log(`Veille FAL server running on port ${port}`);
   console.log("Digest scheduled: Mon-Fri at 06:00 Europe/London");
   console.log("Auth: basic auth enabled on all routes except /health");
+  console.log("Scoring cron: Sunday at 22:00 Europe/London");
   console.log("Endpoints:");
   console.log("  GET /health");
   console.log("  GET /write              — article creation wizard");
+  console.log("  GET /scoring            — scoring dashboard");
   console.log("  GET /trigger-digest");
   console.log("  GET /create-article?url=...&title=...&source=...");
 });
