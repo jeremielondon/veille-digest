@@ -83,7 +83,8 @@ Pour chaque article selectionne, donne :
 - La source originale
 - L'URL
 - La date de publication originale (champ "published" fourni, au format ISO)
-- La categorie (Politique, Immigration, Transport, Economie, Culture, Vie Pratique, Diplomatie, Education, Sante, Sport, Communaute)
+- La categorie EXACTE parmi cette liste : "Immigration & Visas", "Economie & Finance", "Transport", "Logement", "Education", "Sante & Vie quotidienne", "Culture & Loisirs", "Brexit & Politique", "Communaute francaise", "Divers"
+  Utilise "Divers" uniquement si l'article ne correspond a aucune autre categorie
 - Un score de pertinence de 1 a 10
 
 ## TACHE 2 : Detection des "A ne pas manquer"
