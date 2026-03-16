@@ -238,14 +238,14 @@ async function runDigest() {
   }
 
   console.log("Ranking articles + fetching UK news...");
-  const [{ items, mustRead }, ukNews] = await Promise.all([
+  const [{ items, mustRead, discoveries }, ukNews] = await Promise.all([
     rankAndTranslate(articles),
     fetchTopUkNews(),
   ]);
-  console.log(`Selected top ${items.length} articles, ${mustRead.length} must-read, ${ukNews.length} UK news`);
+  console.log(`Selected top ${items.length} articles, ${mustRead.length} must-read, ${discoveries.length} discoveries, ${ukNews.length} UK news`);
 
   console.log("Sending digest email via Mailgun...");
-  await sendDigestEmail(items, mustRead, ukNews);
+  await sendDigestEmail(items, mustRead, ukNews, discoveries);
   console.log("Digest sent successfully!");
 }
 

@@ -1,5 +1,5 @@
 import { env } from "./config.js";
-import type { DigestItem, MustReadItem } from "./summarize.js";
+import type { DigestItem, MustReadItem, DiscoveryItem } from "./summarize.js";
 import type { TavilyNewsItem } from "./tavily-news.js";
 import { loadScores } from "./scoring.js";
 
@@ -79,7 +79,8 @@ function groupByCategory(items: DigestItem[], scores: any | null): CategoryGroup
 export async function sendDigestEmail(
   items: DigestItem[],
   mustRead: MustReadItem[],
-  ukNews: TavilyNewsItem[]
+  ukNews: TavilyNewsItem[],
+  discoveries: DiscoveryItem[] = []
 ): Promise<void> {
   const today = new Date().toLocaleDateString("fr-FR", {
     weekday: "long",
@@ -92,8 +93,8 @@ export async function sendDigestEmail(
   const scores = await loadScores();
   const categories = groupByCategory(items, scores);
 
-  const html = buildHtml(categories, mustRead, ukNews, today, baseUrl);
-  const text = buildText(categories, mustRead, ukNews, today);
+  const html = buildHtml(categories, mustRead, ukNews, discoveries, today, baseUrl);
+  const text = buildText(categories, mustRead, ukNews, discoveries, today);
 
   const form = new URLSearchParams();
   form.append("from", env.mailgunFrom);
@@ -249,12 +250,59 @@ function buildCategoryHtml(
   </div>`;
 }
 
+// --- Discoveries section ---
+
+function buildDiscoveriesHtml(
+  discoveries: DiscoveryItem[],
+  baseUrl: string
+): string {
+  if (discoveries.length === 0) return "";
+
+  const rows = discoveries
+    .map((d) => {
+      const pubDate = d.published
+        ? new Date(d.published).toLocaleDateString("fr-FR", {
+            day: "numeric",
+            month: "long",
+            year: "numeric",
+          })
+        : "";
+      const createUrl = `${baseUrl}?url=${encodeURIComponent(d.url)}&title=${encodeURIComponent(d.title_fr)}&source=${encodeURIComponent(d.source)}`;
+      return `
+    <tr style="border-bottom: 1px solid #99f6e4;">
+      <td style="padding: 12px 8px;">
+        <a href="${d.url}" style="color: #1a1a1a; text-decoration: none; font-weight: 700; font-size: 15px;">${d.title_fr}</a>
+        <br/>
+        <span style="color: #0f766e; font-size: 13px;">${d.source}${pubDate ? ` · ${pubDate}` : ""}</span>
+        <br/>
+        <span style="color: #5f6b78; font-size: 12px; font-style: italic;">${d.hook}</span>
+        <br/>
+        <a href="${createUrl}"
+           style="display: inline-block; margin-top: 6px; padding: 5px 10px; background: #0d9488; color: white; text-decoration: none; border-radius: 4px; font-size: 12px;">
+          Creer article
+        </a>
+      </td>
+    </tr>`;
+    })
+    .join("");
+
+  return `
+  <div style="background: #f0fdfa; border: 1px solid #99f6e4; border-radius: 8px; padding: 20px; margin-top: 24px; margin-bottom: 16px;">
+    <h2 style="font-size: 18px; color: #0f766e; margin: 0 0 4px 0;">Decouvertes & Pepites</h2>
+    <p style="color: #5f6b78; font-size: 13px; margin: 0 0 12px 0;">Articles atypiques deniche dans des blogs et medias de niche</p>
+    <table style="width: 100%; border-collapse: collapse;">
+      ${rows}
+    </table>
+  </div>`;
+}
+
 // --- Main HTML builder ---
 
 function buildHtml(
   categories: CategoryGroup[],
   mustRead: MustReadItem[],
   ukNews: TavilyNewsItem[],
+  discoveries: DiscoveryItem[],
   date: string,
   baseUrl: string
 ): string {
@@ -276,6 +324,7 @@ function buildHtml(
     ${buildUkNewsHtml(ukNews, baseUrl)}
     <h2 style="font-size: 18px; color: #1a1a1a; margin: 0 0 16px 0; border-bottom: 2px solid #e5e7eb; padding-bottom: 8px;">Veille par categorie</h2>
     ${categoryBlocks}
+    ${buildDiscoveriesHtml(discoveries, baseUrl)}
     <p style="color: #999; font-size: 12px; margin-top: 20px; text-align: center;">
       Genere automatiquement via Inoreader + Claude + Tavily · francaisalondres.com
     </p>
@@ -290,6 +339,7 @@ function buildText(
   categories: CategoryGroup[],
   mustRead: MustReadItem[],
   ukNews: TavilyNewsItem[],
+  discoveries: DiscoveryItem[],
   date: string
 ): string {
   const totalArticles = categories.reduce((sum, g) => sum + g.items.length, 0);
@@ -322,6 +372,20 @@ function buildText(
           })
         : "";
       text += `- ${item.title_fr}\n  Source: ${item.source}${pubDate ? ` | ${pubDate}` : ""}\n  ${item.url}\n\n`;
+    }
+  }
+
+  if (discoveries.length > 0) {
+    text += "\n=== DECOUVERTES & PEPITES ===\n\n";
+    for (const d of discoveries) {
+      const pubDate = d.published
+        ? new Date(d.published).toLocaleDateString("fr-FR", {
+            day: "numeric",
+            month: "long",
+            year: "numeric",
+          })
+        : "";
+      text += `- ${d.title_fr}\n  Source: ${d.source}${pubDate ? ` | ${pubDate}` : ""}\n  ${d.hook}\n  ${d.url}\n\n`;
     }
   }
 

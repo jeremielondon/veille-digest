@@ -30,9 +30,18 @@ export interface MustReadItem {
   why: string;
 }
 
+export interface DiscoveryItem {
+  title_fr: string;
+  source: string;
+  url: string;
+  published: string;
+  hook: string;
+}
+
 export interface DigestResult {
   items: DigestItem[];
   mustRead: MustReadItem[];
+  discoveries: DiscoveryItem[];
 }
 
 export async function rankAndTranslate(
@@ -121,6 +130,33 @@ IMPORTANT: Reponds UNIQUEMENT en JSON valide, sans texte avant ou apres. Format 
   ]
 }
 
+## TACHE 3 : Decouvertes & Pepites
+
+Parmi les articles que tu n'as PAS selectionnes dans la Tache 1, choisis 3 a 5 articles atypiques ou surprenants. Privilegier :
+- Les blogs personnels, medias de niche, sources peu connues (PAS les grands medias comme BBC, Guardian, Le Monde, etc.)
+- Les angles originaux, decales, insolites
+- Les sujets qu'on ne verrait pas dans un digest classique
+
+Pour chaque decouverte :
+- Un titre traduit/adapte en francais (accrocheur, qui donne envie de cliquer)
+- La source originale
+- L'URL
+- La date de publication originale (format ISO)
+- Une phrase d'accroche expliquant pourquoi cet article vaut le detour (champ "hook")
+
+Ajoute un champ "discoveries" au JSON :
+"discoveries": [
+  {
+    "title_fr": "Titre accrocheur en francais",
+    "source": "Nom du blog ou media",
+    "url": "https://...",
+    "published": "2026-03-06T10:00:00.000Z",
+    "hook": "Pourquoi cet article vaut le detour"
+  }
+]
+
+Si aucun article ecarte ne merite cette section (tous sont des grands medias classiques), renvoie un tableau vide.
+
 Trie les items par pertinence decroissante et les must_read par nombre de sources decroissant.
 
 Articles :
@@ -152,5 +188,15 @@ ${articleList}`,
       why: mr.why,
     }));
 
-  return { items, mustRead };
+  const discoveries: DiscoveryItem[] = (result.discoveries || [])
+    .slice(0, 5)
+    .map((d: { title_fr: string; source: string; url: string; published: string; hook: string }) => ({
+      title_fr: d.title_fr,
+      source: d.source,
+      url: d.url,
+      published: d.published,
+      hook: d.hook,
+    }));
+
+  return { items, mustRead, discoveries };
 }
