@@ -29,7 +29,7 @@ export async function fetchUnreadArticles(): Promise<InoreaderArticle[]> {
   const token = await getAccessToken();
 
   const res = await fetch(
-    `https://www.inoreader.com/reader/api/0/stream/contents/user/-/state/com.google/reading-list?n=100&xt=user/-/state/com.google/read`,
+    `https://www.inoreader.com/reader/api/0/stream/contents/user/-/state/com.google/reading-list?n=200&xt=user/-/state/com.google/read`,
     { headers: { Authorization: `Bearer ${token}` } }
   );
 
