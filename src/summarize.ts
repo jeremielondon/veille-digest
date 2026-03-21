@@ -86,6 +86,8 @@ Criteres de pertinence :
 - Relations France-UK, diplomatie
 - Vie pratique et economie UK
 - Culture et evenements francophones
+- Bons plans, sorties, restaurants, theatres, spectacles, activites a faire a Londres
+- Articles de blogs et medias de niche avec un angle original ou surprenant
 
 Pour chaque article selectionne, donne :
 - Un titre traduit/adapte en francais (court, accrocheur, style media)
@@ -132,9 +134,10 @@ IMPORTANT: Reponds UNIQUEMENT en JSON valide, sans texte avant ou apres. Format 
 
 ## TACHE 3 : Decouvertes & Pepites
 
-Parmi les articles que tu n'as PAS selectionnes dans la Tache 1, choisis 3 a 5 articles atypiques ou surprenants. Privilegier :
+Parmi les articles que tu n'as PAS selectionnes dans la Tache 1, choisis 5 a 8 articles atypiques ou surprenants. Privilegier :
 - Les blogs personnels, medias de niche, sources peu connues (PAS les grands medias comme BBC, Guardian, Le Monde, etc.)
 - Les angles originaux, decales, insolites
+- Les bons plans, activites, restaurants, spectacles, lieux insolites a decouvrir a Londres
 - Les sujets qu'on ne verrait pas dans un digest classique
 
 Pour chaque decouverte :
@@ -154,6 +157,8 @@ Ajoute un champ "discoveries" au JSON :
     "hook": "Pourquoi cet article vaut le detour"
   }
 ]
+
+Cette section doit etre VRAIMENT surprenante et donner envie de cliquer. Privilegier la variete des sources : chaque decouverte devrait idealement venir d'un media/blog different.
 
 Si aucun article ecarte ne merite cette section (tous sont des grands medias classiques), renvoie un tableau vide.
 
@@ -189,7 +194,7 @@ ${articleList}`,
     }));
 
   const discoveries: DiscoveryItem[] = (result.discoveries || [])
-    .slice(0, 5)
+    .slice(0, 8)
     .map((d: { title_fr: string; source: string; url: string; published: string; hook: string }) => ({
       title_fr: d.title_fr,
       source: d.source,
